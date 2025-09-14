@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Sprite Sheet 动画预览</title>
+<style>
+  body {
+    margin: 0;
+    overflow: hidden;
+    display: flex; /* 使用 Flexbox 进行左右布局 */
+    justify-content: center;
+    align-items: flex-start; /* 顶部对齐，或 center 居中对齐 */
+    min-height: 100vh;
+    background-color: #f0f0f0;
+    font-family: Arial, sans-serif;
+    padding: 20px; /* 增加一些内边距 */
+    box-sizing: border-box;
+  }
+
+  #animation-section {
+    flex-grow: 1; /* 占据可用空间 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-right: 20px; /* 与控制面板的间距 */
+    border: 1px dashed #ccc; /* 动画区域的边框 */
+    min-width: 300px; /* 确保动画区域有最小宽度 */
+    min-height: 300px; /* 确保动画区域有最小高度 */
+    background-color: #e9e9e9;
+    border-radius: 8px;
+    position: relative; /* 方便GIF加载提示定位 */
+    overflow: hidden; /* 防止内容溢出，特别是加载提示 */
+  }
+
+  #controls {
+    flex-shrink: 0; /* 不压缩 */
+    width: 300px; /* 固定控制面板宽度 */
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 15px; /* 增加控件之间的间距 */
+  }
+
+  #controls h2 {
+    margin-top: 0;
+    color: #333;
+    text-align: center;
+  }
+
+  #controls label {
+    font-weight: bold;
+    margin-bottom: 5px;
+    display: block;
+    color: #555;
+  }
+
+  #controls input[type="file"],
+  #controls input[type="number"],
+  #controls select {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    width: calc(100% - 22px); /* 减去padding和border */
+    font-size: 14px;
+    background-color: #f8f8f8;
+  }
+
+  #controls button {
+    padding: 12px 18px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-top: 10px;
+    transition: background-color 0.2s ease;
+  }
+
+  #controls button:hover {
+    background-color: #0056b3;
+  }
+
+  #controls button.reset-button {
+    background-color: #dc3545; /* 红色按钮 */
+  }
+
+  #controls button.reset-button:hover {
+    background-color: #c82333;
+  }
+
+  #controls button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+
+  #animation-container {
+    width: 0px;  /* 占位符，JS 会设置 */
+    height: 0px; /* 占位符，JS 会设置 */
+    background-repeat: no-repeat;
+    background-position: 0 0; /* 初始位置为第一帧 */
+    /* border: 1px solid #ccc;  可选：方便查看容器边界 */
+    box-sizing: border-box; /* 确保边框不增加总尺寸 */
+    image-rendering: pixelated; /* 对于像素艺术可能有用，防止模糊 */
+    background-size: auto; /* 确保背景图原始尺寸，不拉伸 */
+    background-color: transparent; /* 动画预览容器背景色设为透明 */
+    display: flex; /* 居中内容 */
+    justify-content: center;
+    align-items: center;
+    color: #666;
+    overflow: hidden; /* 防止序列帧溢出单帧容器 */
+  }
+
+  #animation-container.placeholder::before {
+    content: "请加载序列帧以预览动画";
+    font-size: 1.1em;
+    color: #888;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="animation-section">
+  <div id="animation-container" class="placeholder"></div>
+</div>
+
+<div id="controls">
+  <h2>动画配置</h2>
+  <div>
+    <label for="spriteSheetInput">选择序列帧:</label>
+    <input type="file" id="spriteSheetInput" accept="image/*">
+  </div>
+  <div>
+    <label for="frameWidthInput">单帧宽度 (px):</label>
+    <input type="number" id="frameWidthInput" value="32" min="1">
+  </div>
+  <div>
+    <label for="frameHeightInput">单帧高度 (px):</label>
+    <input type="number" id="frameHeightInput" value="32" min="1">
+  </div>
+  <div>
+    <label for="frameRateInput">帧率 (毫秒/帧):</label>
+    <input type="number" id="frameRateInput" value="100" min="10">
+  </div>
+  <button id="loadAnimationBtn">加载动画</button>
+  <button id="resetStateBtn" class="reset-button">重置状态</button> <!-- 新增的重置按钮 -->
+
+</div>
+
+<script>
+  const animationContainer = document.getElementById('animation-container');
+  const spriteSheetInput = document.getElementById('spriteSheetInput');
+  const frameWidthInput = document.getElementById('frameWidthInput');
+  const frameHeightInput = document.getElementById('frameHeightInput');
+  const frameRateInput = document.getElementById('frameRateInput');
+  const loadAnimationBtn = document.getElementById('loadAnimationBtn');
+  const resetStateBtn = document.getElementById('resetStateBtn');
+
+  let animationInterval;
+  let currentImageURL = null;
+  let totalFrames = 0;
+  let framesPerRow = 0;
+  let currentSpriteImage = null; // 用于绘制到Canvas的Image对象
+
+  // 存储初始默认值
+  const defaultFrameWidth = 32;
+  const defaultFrameHeight = 32;
+  const defaultFrameRate = 100;
+
+  function stopAnimation() {
+    if (animationInterval) {
+      clearInterval(animationInterval);
+      animationInterval = null;
+    }
+  }
+
+  function startAnimation(spriteSheetPath, frameWidth, frameHeight, frameRate) {
+    stopAnimation();
+
+    animationContainer.classList.remove('placeholder');
+    animationContainer.style.width = `${frameWidth}px`;
+    animationContainer.style.height = `${frameHeight}px`;
+    animationContainer.style.backgroundImage = `url('${spriteSheetPath}')`;
+    animationContainer.style.backgroundPosition = '0 0';
+
+    let currentFrame = 0;
+
+    currentSpriteImage = new Image();
+    currentSpriteImage.src = spriteSheetPath;
+
+    currentSpriteImage.onload = () => {
+      const spriteSheetWidth = currentSpriteImage.width;
+      const spriteSheetHeight = currentSpriteImage.height;
+
+      // 确保单帧尺寸不超过序列帧尺寸
+      if (frameWidth > spriteSheetWidth || frameHeight > spriteSheetHeight) {
+          alert("单帧宽度或高度不能大于序列帧的整体尺寸。请检查输入。");
+          animationContainer.style.backgroundImage = 'none';
+          animationContainer.classList.add('placeholder');
+          return;
+      }
+
+
+      framesPerRow = Math.floor(spriteSheetWidth / frameWidth);
+      totalFrames = (framesPerRow * Math.floor(spriteSheetHeight / frameHeight));
+
+      if (totalFrames === 0 || framesPerRow === 0) {
+        console.error("无法计算总帧数或每行帧数。请检查 frameWidth, frameHeight 和图片尺寸是否正确。");
+        alert("无法计算总帧数或每行帧数。请检查单帧宽度和高度是否与序列帧尺寸匹配。");
+        animationContainer.style.backgroundImage = 'none';
+        animationContainer.classList.add('placeholder');
+        return;
+      }
+
+      console.log(`序列帧总宽度: ${spriteSheetWidth}px`);
+      console.log(`序列帧总高度: ${spriteSheetHeight}px`);
+      console.log(`单帧宽度: ${frameWidth}px`);
+      console.log(`单帧高度: ${frameHeight}px`);
+      console.log(`每行帧数: ${framesPerRow}`);
+      console.log(`总帧数: ${totalFrames}`);
+
+      function updateFrame() {
+        const col = currentFrame % framesPerRow;
+        const row = Math.floor(currentFrame / framesPerRow);
+
+        const backgroundX = -col * frameWidth;
+        const backgroundY = -row * frameHeight;
+
+        animationContainer.style.backgroundPosition = `${backgroundX}px ${backgroundY}px`;
+
+        currentFrame++;
+        if (currentFrame >= totalFrames) {
+          currentFrame = 0;
+        }
+      }
+
+      updateFrame();
+      animationInterval = setInterval(updateFrame, frameRate);
+    };
+
+    currentSpriteImage.onerror = () => {
+      console.error(`无法加载序列帧：${spriteSheetPath}。请检查路径是否正确或文件已损坏。`);
+      alert("无法加载序列帧。请检查文件是否为有效的图片格式。");
+      animationContainer.style.backgroundImage = 'none';
+      animationContainer.classList.add('placeholder');
+      stopAnimation();
+    };
+  }
+
+  loadAnimationBtn.addEventListener('click', () => {
+    const selectedFile = spriteSheetInput.files[0];
+    const width = parseInt(frameWidthInput.value);
+    const height = parseInt(frameHeightInput.value);
+    const rate = parseInt(frameRateInput.value);
+
+    if (!selectedFile) {
+      alert("请先选择一个序列帧文件！");
+      return;
+    }
+    if (isNaN(width) || width <= 0) {
+      alert("请输入有效的单帧宽度！");
+      return;
+    }
+    if (isNaN(height) || height <= 0) {
+      alert("请输入有效的单帧高度！");
+      return;
+    }
+    if (isNaN(rate) || rate <= 0) {
+      alert("请输入有效的帧率！");
+      return;
+    }
+
+    if (currentImageURL) {
+      URL.revokeObjectURL(currentImageURL);
+    }
+    currentImageURL = URL.createObjectURL(selectedFile);
+    startAnimation(currentImageURL, width, height, rate);
+  });
+
+  // 新增的重置函数
+  function resetAllStates() {
+    stopAnimation(); // 停止动画
+
+    // 清除序列帧输入
+    spriteSheetInput.value = '';
+    if (currentImageURL) {
+      URL.revokeObjectURL(currentImageURL);
+      currentImageURL = null;
+    }
+    currentSpriteImage = null;
+
+    // 重置动画预览区域
+    animationContainer.style.backgroundImage = 'none';
+    animationContainer.style.backgroundPosition = '0 0';
+    animationContainer.style.width = `${defaultFrameWidth}px`; // 恢复默认尺寸
+    animationContainer.style.height = `${defaultFrameHeight}px`; // 恢复默认尺寸
+    animationContainer.classList.add('placeholder');
+
+    // 重置输入字段到默认值
+    frameWidthInput.value = defaultFrameWidth;
+    frameHeightInput.value = defaultFrameHeight;
+    frameRateInput.value = defaultFrameRate;
+
+    // 重置其他内部状态
+    totalFrames = 0;
+    framesPerRow = 0;
+  }
+
+  // 为重置按钮添加事件监听器
+  resetStateBtn.addEventListener('click', resetAllStates);
+
+
+  window.addEventListener('beforeunload', () => {
+    if (currentImageURL) {
+      URL.revokeObjectURL(currentImageURL);
+    }
+    stopAnimation();
+  });
+
+  // 初始状态下
+  animationContainer.classList.add('placeholder');
+  animationContainer.style.width = `${frameWidthInput.value}px`;
+  animationContainer.style.height = `${frameHeightInput.value}px`;
+</script>
+
+</body>
+</html>
